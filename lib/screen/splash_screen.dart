@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'home_screen.dart';
 
@@ -16,100 +18,170 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> {
+class _SplashScreenState extends State<SplashScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  late final Animation<double> _logoScale;
+  late final Animation<double> _logoFade;
+  late final Animation<double> _loaderFade;
+
+  // Total waktu splash ditampilkan sebelum pindah ke HomeScreen.
+  // Sengaja lebih lama dari durasi animasi supaya ada jeda "diam"
+  // sebentar setelah animasi selesai, tidak langsung lompat.
+  static const _totalHold = Duration(milliseconds: 2400);
+
   @override
   void initState() {
     super.initState();
+
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1300),
+    );
+
+    // Logo: muncul dengan efek scale "memantul" (elasticOut).
+    _logoScale = CurvedAnimation(
+      parent: _ctrl,
+      curve: const Interval(0.0, 0.65, curve: Curves.elasticOut),
+    );
+    _logoFade = CurvedAnimation(
+      parent: _ctrl,
+      curve: const Interval(0.0, 0.35, curve: Curves.easeOut),
+    );
+
+    // Loading indicator: muncul paling terakhir.
+    _loaderFade = CurvedAnimation(
+      parent: _ctrl,
+      curve: const Interval(0.75, 1.0, curve: Curves.easeOut),
+    );
+
+    _ctrl.forward();
     _goToHome();
   }
 
   Future<void> _goToHome() async {
-    // Jeda tampilan splash. Kalau nanti splash ini juga dipakai untuk
-    // proses lain (mis. cek versi app, cek sesi login), taruh proses
-    // itu di sini sebelum Navigator.pushReplacement dipanggil.
-    await Future.delayed(const Duration(seconds: 2));
+    // Kalau nanti splash ini juga dipakai untuk proses lain (mis. cek
+    // versi app, cek sesi login), taruh proses itu di sini sebelum
+    // Navigator.pushReplacement dipanggil.
+    await Future.delayed(_totalHold);
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (context) => const HomeScreen()),
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 500),
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            const HomeScreen(),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(opacity: animation, child: child);
+        },
+      ),
     );
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        width: double.infinity,
-        height: double.infinity,
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF102A6B), Color(0xFF30318B)],
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Background gradient dasar — sama seperti hero section di
+          // Home Screen (navy di atas, sky blue cerah di bawah), biar
+          // konsisten dan senada dengan biru di logo & Portal Web.
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color.fromARGB(255, 71, 154, 255),
+                  Color.fromARGB(255, 171, 216, 241),
+                  Color.fromARGB(255, 15, 12, 231),
+                ],
+              ),
+            ),
           ),
-        ),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 88,
-                height: 88,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.2),
-                      blurRadius: 20,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                padding: const EdgeInsets.all(14),
-                child: Image.asset(
-                  'assets/icon/kirana_logo.png',
-                  fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) => const Text(
-                    'KIRANA',
-                    style: TextStyle(
-                      color: Color(0xFFEE2737),
-                      fontWeight: FontWeight.w900,
-                      fontSize: 13,
-                      letterSpacing: 0.5,
+          // Aksen blob cahaya samar, supaya background gak flat.
+          Positioned(
+            top: -80,
+            right: -60,
+            child: _GlowBlob(size: 220, opacity: 0.10),
+          ),
+          Positioned(
+            bottom: -100,
+            left: -70,
+            child: _GlowBlob(size: 260, opacity: 0.08),
+          ),
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ScaleTransition(
+                  scale: _logoScale,
+                  child: FadeTransition(
+                    opacity: _logoFade,
+                    child: Image.asset(
+                      'assets/icon/mykfin_logo.png',
+                      width: 180,
+                      height: 180,
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) =>
+                          const Text(
+                        'MyKFIN',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 28,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 22),
-              const Text(
-                'Portal MyKFIN',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 18,
-                  letterSpacing: 0.2,
+                const SizedBox(height: 36),
+                FadeTransition(
+                  opacity: _loaderFade,
+                  child: const SizedBox(
+                    width: 26,
+                    height: 26,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Kirana Food International',
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.75),
-                  fontWeight: FontWeight.w500,
-                  fontSize: 12,
-                ),
-              ),
-              const SizedBox(height: 32),
-              const SizedBox(
-                width: 26,
-                height: 26,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Lingkaran cahaya blur samar untuk aksen background splash.
+class _GlowBlob extends StatelessWidget {
+  const _GlowBlob({required this.size, required this.opacity});
+
+  final double size;
+  final double opacity;
+
+  @override
+  Widget build(BuildContext context) {
+    return ImageFiltered(
+      imageFilter: ImageFilter.blur(sigmaX: 40, sigmaY: 40),
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white.withValues(alpha: opacity),
         ),
       ),
     );
