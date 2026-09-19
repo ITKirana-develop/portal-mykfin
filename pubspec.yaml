@@ -1,0 +1,49 @@
+name: portal_mykfin_flutter
+description: "K-Portal - Portal aplikasi internal Kirana Food International."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  webview_flutter: ^4.14.1
+  webview_flutter_android: ^4.0.0
+  http: ^1.2.0
+  path_provider: ^2.1.0
+  permission_handler: ^11.3.0
+  open_filex: ^4.5.0
+  image_picker: ^1.1.2
+  url_launcher: ^6.3.0
+  shared_preferences: ^2.3.0
+  wireguard_flutter_pro: ^0.1.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icon/
+
+# Konfigurasi buat generate launcher icon (dijalankan lewat:
+# dart run flutter_launcher_icons).
+# CATATAN: tidak ada file "logo.png" generik di folder asset kamu
+# (cuma ada kirana_logo.png, k_fish_logo, dst) -- jadi image_path di
+# bawah diarahkan ke kirana_logo.png. Ganti kalau nanti ada logo
+# khusus K-Portal yang terpisah dari logo Kirana.
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/kirana_logo.png"
+  min_sdk_android: 21
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/icon/logo_foreground.png"
