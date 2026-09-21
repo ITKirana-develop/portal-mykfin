@@ -13,7 +13,7 @@ class KPortalApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'K-Portal',
+      title: 'MyKFIN',
       theme: ThemeData(
         useMaterial3: true,
         scaffoldBackgroundColor: KColors.surface,

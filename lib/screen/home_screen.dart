@@ -123,7 +123,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // lompat keluar ke Chrome/browser HP.
     // app.baseUrl untuk Website Utama sudah URL utuh (kfifood.com),
     // jadi tidak perlu ditambah '/login' seperti aplikasi internal.
-    final url = app.external ? app.baseUrl : '${app.baseUrl}/login';
+    final url = app.baseUrl;
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -1059,7 +1059,7 @@ class _Footer extends StatelessWidget {
       child: const Column(
         children: [
           Text(
-            '2025 Portal MyKFIN - PT. Kirana Food International',
+            'Portal MyKFIN - PT. Kirana Food International',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 10.5,

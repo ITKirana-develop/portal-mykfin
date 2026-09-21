@@ -17,12 +17,12 @@ class AppConfig {
 
   /// ERP-MyKFIN -- sistem utama/portal utama (card pertama, ditandai
   /// badge "Live"). GANTI dengan URL ERP asli.
-  static const String erpMyKfinBaseUrl = 'https://erp.mykfin.com/login';
+  // static const String erpMyKfinBaseUrl = 'https://erp.mykfin.com/login';
 
   static const String kFishBaseUrl = 'https://efile.mykfin.com/login';
   static const String kCrabBaseUrl = 'https://recruitment.mykfin.com/login';
   static const String kWeedBaseUrl = 'https://teknik.mykfin.com/login';
-  static const String kSquidBaseUrl = 'https://quality.mykfin.com/';
+  static const String kSquidBaseUrl = 'https://quality.mykfin.com/login';
   static const String kIkanBaseUrl = 'https://office.mykfin.com/login';
 
   /// Nomor telepon/WhatsApp IT Support -- dipakai tombol "Contact" di
