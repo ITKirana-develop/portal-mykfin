@@ -125,23 +125,7 @@ class _SplashScreenState extends State<SplashScreen>
                   scale: _logoScale,
                   child: FadeTransition(
                     opacity: _logoFade,
-                    child: Image.asset(
-                      'assets/icon/mykfin_logo.png',
-                      width: 180,
-                      height: 180,
-                      fit: BoxFit.contain,
-                      errorBuilder: (context, error, stackTrace) =>
-                          const Text(
-                        'MyKFIN',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 28,
-                          letterSpacing: 0.3,
-                        ),
-                      ),
-                    ),
+                    child: const _SplashLogo(size: 180),
                   ),
                 ),
                 const SizedBox(height: 36),
@@ -165,7 +149,57 @@ class _SplashScreenState extends State<SplashScreen>
   }
 }
 
-/// Lingkaran cahaya blur samar untuk aksen background splash.
+/// Logo splash. File logo di assets/icon/ pernah beberapa kali
+/// ke-rename (mis. saat setup flutter_launcher_icons), jadi widget ini
+/// coba beberapa kemungkinan nama file secara berurutan -- kalau nama
+/// pertama gak ketemu, otomatis coba nama berikutnya -- baru kalau
+/// semua gak ada, jatuh ke teks "MyKFIN" putih sebagai pengganti
+/// sementara.
+///
+/// TAMBAHKAN nama file baru di depan list ini kalau logo di-rename
+/// lagi nanti, supaya splash gak balik nampilin teks putih doang.
+class _SplashLogo extends StatelessWidget {
+  const _SplashLogo({required this.size});
+
+  final double size;
+
+  static const _candidates = [
+    'assets/icon/mykfin_logo.png',
+    'assets/icon/mykfin_icon_foreground.png',
+    'assets/icon/logo_foreground.png',
+    'assets/icon/logo.png',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return _tryLoad(0);
+  }
+
+  Widget _tryLoad(int index) {
+    if (index >= _candidates.length) {
+      return SizedBox(
+        width: size,
+        child: const Text(
+          'MyKFIN',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            fontSize: 28,
+            letterSpacing: 0.3,
+          ),
+        ),
+      );
+    }
+    return Image.asset(
+      _candidates[index],
+      width: size,
+      height: size,
+      fit: BoxFit.contain,
+      errorBuilder: (context, error, stackTrace) => _tryLoad(index + 1),
+    );
+  }
+}
 class _GlowBlob extends StatelessWidget {
   const _GlowBlob({required this.size, required this.opacity});
 

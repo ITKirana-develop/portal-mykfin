@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -127,18 +128,30 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => WebViewScreen(title: app.name, url: url),
+        builder: (context) => WebViewScreen(
+          title: app.name,
+          url: url,
+          // Website Utama (app.external) itu situs LUAR yang di-cache
+          // CDN-nya sendiri -- jangan ditempelin '?mobile_app=1',
+          // biar tetap kena cache cepat, bukan selalu ambil versi baru
+          // dari server. Aplikasi internal tetap perlu parameter ini.
+          addMobileAppParam: !app.external,
+        ),
       ),
     );
   }
 
   void _openRecruitment() {
-    final crab = _apps.firstWhere(
-      (a) => a.name == 'K-CRAB',
-      orElse: () => _apps.first,
-    );
-    _openApp(crab);
-  }
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (context) => WebViewScreen(
+        title: 'Recruitment Information',
+        url: AppConfig.recruitmentUrl,
+      ),
+    ),
+  );
+}
 
   // Dipanggil saat user narik layar ke bawah (pull-to-refresh).
   // Saat ini cuma refresh tampilan; kalau nanti ada data dari server
@@ -240,8 +253,10 @@ class _TopBarState extends State<_TopBar> {
     super.dispose();
   }
 
-  Future<void> _initVpn() async {
+    Future<void> _initVpn() async {
+    debugPrint('VPN DEBUG: _initVpn mulai dipanggil');
     final connected = await VpnService.instance.isConnectedNow();
+    debugPrint('VPN DEBUG: _initVpn hasil connected=$connected');
     final config = await VpnConfigService.instance.load();
     if (!mounted) return;
     setState(() {
@@ -688,8 +703,9 @@ class _TopBarState extends State<_TopBar> {
   }
 }
 
-/// Hero section: gradient navy -> sky, ilustrasi kecil, headline, dan
-/// tombol pill "Recruitment Information".
+/// Hero section: gradient sky (terang, dekat logo) -> navy (redup di
+/// bawah), ilustrasi kecil, headline, dan tombol pill "Recruitment
+/// Information".
 class _HeroSection extends StatelessWidget {
   const _HeroSection({required this.onRecruitmentTap});
 
@@ -706,24 +722,26 @@ class _HeroSection extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.fromLTRB(20, 18, 20, 40),
         decoration: const BoxDecoration(
+          // Terang di atas (dekat logo), makin redup/gelap ke bawah --
+          // kebalikan dari sebelumnya.
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [KColors.heroNavy, Color(0xFF1E40AF), KColors.heroSky],
+            colors: [KColors.heroSky, Color(0xFF1E3A8A), KColors.heroNavy],
           ),
         ),
         child: Column(
           children: [
-            // Placeholder ilustrasi hero. Tinggal taruh file di
-            // assets/icon/hero_illustration.png (folder assets/icon/
-            // sudah terdaftar di pubspec.yaml, tidak perlu diedit lagi).
-            // Selama file belum ada, tampil ilustrasi vector bawaan
-            // sebagai pengganti sementara.
-            Image.asset(
-              'assets/icon/hero_illustration.png',
-              height: 130,
-              errorBuilder: (context, error, stackTrace) =>
-                  const _HeroIllustration(),
+            // Logo MyKFIN full, warna asli (bukan diputihkan). Biar
+            // tetap kontras di atas gradient biru tua tanpa kartu
+            // solid, dikasih glow putih lembut (blur) di belakangnya
+            // -- bukan kotak keras, cuma cahaya samar.
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                _GlowBlob(size: 200, opacity: 0.55),
+                const _HeroLogo(height: 150),
+              ],
             ),
             const SizedBox(height: 18),
             const Text(
@@ -792,6 +810,64 @@ class _HeroSection extends StatelessWidget {
 
 /// Ilustrasi kecil ala "laptop mockup" dengan ikon-ikon melayang di
 /// sekitarnya, mereplikasi bagian hero di versi web.
+/// Logo MyKFIN untuk hero section. Coba beberapa kemungkinan nama
+/// file logo secara berurutan (sama seperti _SplashLogo di
+/// splash_screen.dart) -- kalau nama pertama gak ketemu, otomatis
+/// coba nama berikutnya, baru kalau semua gak ada, jatuh ke
+/// ilustrasi vector bawaan (_HeroIllustration).
+class _HeroLogo extends StatelessWidget {
+  const _HeroLogo({required this.height});
+
+  final double height;
+
+  static const _candidates = [
+    'assets/icon/mykfin_logo.png',
+    'assets/icon/mykfin_icon_foreground.png',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return _tryLoad(0);
+  }
+
+  Widget _tryLoad(int index) {
+    if (index >= _candidates.length) {
+      return const _HeroIllustration();
+    }
+    return Image.asset(
+      _candidates[index],
+      height: height,
+      fit: BoxFit.contain,
+      errorBuilder: (context, error, stackTrace) => _tryLoad(index + 1),
+    );
+  }
+}
+
+/// Lingkaran cahaya blur samar, ditaruh di belakang logo hero supaya
+/// tetap kontras di atas gradient biru tua tanpa perlu kartu solid
+/// atau ubah warna logo.
+class _GlowBlob extends StatelessWidget {
+  const _GlowBlob({required this.size, required this.opacity});
+
+  final double size;
+  final double opacity;
+
+  @override
+  Widget build(BuildContext context) {
+    return ImageFiltered(
+      imageFilter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white.withValues(alpha: opacity),
+        ),
+      ),
+    );
+  }
+}
+
 class _HeroIllustration extends StatelessWidget {
   const _HeroIllustration();
 

@@ -1,5 +1,5 @@
 import 'dart:async';
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:wireguard_flutter_pro/wireguard_flutter_pro.dart';
 
@@ -80,18 +80,21 @@ class VpnService {
   /// ke tunnel itu. Di sini kita sinkronkan OTOMATIS di belakang
   /// layar, supaya toggle langsung menunjukkan status yang BENAR, dan
   /// tombol "Putuskan" langsung berhasil di percobaan pertama.
-  Future<bool> isConnectedNow() async {
+    Future<bool> isConnectedNow() async {
     await _ensureInitialized();
     final stage = await _wireguard.stage();
     var connected = stage == VpnStage.connected;
+    debugPrint('VPN DEBUG: stage awal=$stage, connected=$connected');
 
     if (!connected) {
       final lastActionConnected = await VpnConfigService.instance
           .getLastActionConnected();
+      debugPrint('VPN DEBUG: lastActionConnected=$lastActionConnected');
       if (lastActionConnected) {
         final config = await VpnConfigService.instance.load();
         if (config != null) {
-          try {
+                    try {
+            debugPrint('VPN DEBUG: mencoba auto-reconnect...');
             await _wireguard.startVpn(
               serverAddress: config.serverAddress,
               wgQuickConfig: config.toWgQuickConfig(),
@@ -100,7 +103,9 @@ class VpnService {
             await Future.delayed(const Duration(milliseconds: 800));
             final restage = await _wireguard.stage();
             connected = restage == VpnStage.connected;
-          } catch (_) {
+            debugPrint('VPN DEBUG: hasil auto-reconnect, restage=$restage, connected=$connected');
+          } catch (e) {
+            debugPrint('VPN DEBUG: auto-reconnect GAGAL -> $e');
             connected = false;
           }
         }

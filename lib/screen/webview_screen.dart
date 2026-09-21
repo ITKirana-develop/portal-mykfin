@@ -38,6 +38,15 @@ class WebViewScreen extends StatefulWidget {
   /// lain tidak berubah.
   final bool showAppBar;
 
+  /// Kalau false, WebView TIDAK menempelkan '?mobile_app=1' ke URL
+  /// yang dibuka. Default true (perilaku lama, dibutuhkan aplikasi
+  /// internal Kirana). Diset false untuk situs LUAR (mis. website
+  /// resmi Kirana) -- soalnya parameter tambahan itu bisa bikin CDN
+  /// situs luar selalu miss cache (selalu ambil versi baru dari
+  /// server, bukan versi cepat yang sudah di-cache), yang bikin
+  /// loading kerasa lebih lambat dari seharusnya.
+  final bool addMobileAppParam;
+
   const WebViewScreen({
     super.key,
     required this.url,
@@ -45,6 +54,7 @@ class WebViewScreen extends StatefulWidget {
     this.closeOnUrlContains,
     this.redirectHomeWhen,
     this.showAppBar = true,
+    this.addMobileAppParam = true,
   });
 
   @override
@@ -83,6 +93,12 @@ class _WebViewScreenState extends State<WebViewScreen> {
 
     controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      // WAJIB di-set: tanpa ini, WebView Android bisa nampilin layar
+      // HITAM sesaat (bahkan kadang lama/nyangkut) sebelum konten
+      // halaman selesai di-render, terutama di situs yang berat kayak
+      // kfifood.com. Warna putih dipilih supaya nyambung mulus ke
+      // splash/loading indicator putih yang sudah ada.
+      ..setBackgroundColor(Colors.white)
       // Channel buat lacak posisi scroll halaman web, dipakai supaya
       // gesture pull-to-refresh cuma aktif kalau halaman sedang di
       // paling atas. Halaman web tidak perlu diubah kodenya -- script
@@ -247,7 +263,9 @@ class _WebViewScreenState extends State<WebViewScreen> {
         ),
       )
       ..loadRequest(
-        _addMobileAppParameter(Uri.parse(widget.url)),
+        widget.addMobileAppParam
+            ? _addMobileAppParameter(Uri.parse(widget.url))
+            : Uri.parse(widget.url),
       );
 
     // Handler khusus Android: setujui otomatis permintaan kamera/mic
