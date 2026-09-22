@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:wireguard_flutter_pro/wireguard_flutter_pro.dart';
 
 
@@ -70,6 +68,46 @@ class VpnService {
     }
   }
 
+  /// Sambungkan ulang "pegangan" plugin ke tunnel yang sebenarnya
+  /// masih hidup di background, KALAU perlu (mis. app sempat
+  /// di-kill paksa saat VPN aktif, plugin baru dibuat ulang dan
+  /// belum "pegang" balik ke tunnel itu).
+  ///
+  /// Dipanggil PROAKTIF di awal isConnectedNow() DAN disconnect(),
+  /// SEBELUM ada percobaan apa pun -- bukan reaktif nunggu exception
+  /// tertentu muncul dulu. Ini sengaja begini (bukan cuma nge-catch
+  /// PlatformException dengan pesan "tunnel is not running") supaya
+  /// gak gantung sama teks pesan error spesifik dari plugin, yang
+  /// bisa beda-beda tergantung versi plugin/platform. Return true
+  /// kalau setelah proses ini statusnya CONNECTED (baik dari awal,
+  /// maupun berhasil di-resync).
+  Future<bool> _resyncHandleIfNeeded() async {
+    await _ensureInitialized();
+
+    final stage = await _wireguard.stage();
+    if (stage == VpnStage.connected) return true;
+
+    final lastActionConnected = await VpnConfigService.instance
+        .getLastActionConnected();
+    if (!lastActionConnected) return false;
+
+    final config = await VpnConfigService.instance.load();
+    if (config == null) return false;
+
+    try {
+      await _wireguard.startVpn(
+        serverAddress: config.serverAddress,
+        wgQuickConfig: config.toWgQuickConfig(),
+        providerBundleIdentifier: _providerBundleIdentifier,
+      );
+      await Future.delayed(const Duration(milliseconds: 800));
+      final restage = await _wireguard.stage();
+      return restage == VpnStage.connected;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Cek status VPN sekarang juga (dipanggil sekali waktu dropdown
   /// Pengaturan VPN dibuka), tanpa perlu nunggu event dari stream.
   ///
@@ -78,44 +116,14 @@ class VpnService {
   /// MASIH hidup di background (app sempat di-kill paksa saat VPN
   /// aktif) -- plugin baru saja dibuat ulang dan belum "pegang" balik
   /// ke tunnel itu. Di sini kita sinkronkan OTOMATIS di belakang
-  /// layar, supaya toggle langsung menunjukkan status yang BENAR, dan
-  /// tombol "Putuskan" langsung berhasil di percobaan pertama.
-    Future<bool> isConnectedNow() async {
-    await _ensureInitialized();
-    final stage = await _wireguard.stage();
-    var connected = stage == VpnStage.connected;
-    debugPrint('VPN DEBUG: stage awal=$stage, connected=$connected');
-
-    if (!connected) {
-      final lastActionConnected = await VpnConfigService.instance
-          .getLastActionConnected();
-      debugPrint('VPN DEBUG: lastActionConnected=$lastActionConnected');
-      if (lastActionConnected) {
-        final config = await VpnConfigService.instance.load();
-        if (config != null) {
-                    try {
-            debugPrint('VPN DEBUG: mencoba auto-reconnect...');
-            await _wireguard.startVpn(
-              serverAddress: config.serverAddress,
-              wgQuickConfig: config.toWgQuickConfig(),
-              providerBundleIdentifier: _providerBundleIdentifier,
-            );
-            await Future.delayed(const Duration(milliseconds: 800));
-            final restage = await _wireguard.stage();
-            connected = restage == VpnStage.connected;
-            debugPrint('VPN DEBUG: hasil auto-reconnect, restage=$restage, connected=$connected');
-          } catch (e) {
-            debugPrint('VPN DEBUG: auto-reconnect GAGAL -> $e');
-            connected = false;
-          }
-        }
-      }
-    }
-
+  /// layar (lewat _resyncHandleIfNeeded), supaya toggle langsung
+  /// menunjukkan status yang BENAR, dan tombol "Putuskan" langsung
+  /// berhasil di percobaan pertama.
+  Future<bool> isConnectedNow() async {
+    final connected = await _resyncHandleIfNeeded();
     if (connected) {
       _stateController.add(VpnConnectionState.connected);
     }
-
     return connected;
   }
 
@@ -145,24 +153,26 @@ class VpnService {
     }
   }
 
-  /// Putuskan VPN. Kalau plugin tidak punya pegangan ke tunnel yang
-  /// sebenarnya masih hidup, sambungkan ulang dulu untuk "mengambil
-  /// alih" tunnel lama itu -- Android/iOS cuma izinkan 1 VPN aktif
-  /// se-sistem -- baru langsung diputuskan lagi dengan pegangan yang
-  /// sekarang valid. User cukup tekan "Putuskan" SEKALI.
+  /// Putuskan VPN. SEBELUM mencoba stopVpn(), kita panggil
+  /// _resyncHandleIfNeeded() dulu (lihat penjelasan di atas method
+  /// itu) supaya kalau plugin belum "pegang" tunnel yang sebenarnya
+  /// masih hidup, itu diambil alih dulu -- baru diputuskan dengan
+  /// pegangan yang sekarang valid. User cukup tekan "Putuskan" SEKALI,
+  /// dan ini gak bergantung sama teks pesan error spesifik dari
+  /// plugin (yang bisa beda-beda tiap versi/platform).
   Future<void> disconnect() async {
-    await _ensureInitialized();
+    await _resyncHandleIfNeeded();
 
     try {
       await _wireguard.stopVpn();
       await VpnConfigService.instance.setLastActionConnected(false);
       _stateController.add(VpnConnectionState.disconnected);
       return;
-    } on PlatformException catch (e) {
-      final isTunnelNotRunning = (e.message ?? '').toLowerCase().contains(
-        'tunnel is not running',
-      );
-      if (!isTunnelNotRunning) rethrow;
+    } catch (_) {
+      // Jaring pengaman kedua: kalau ternyata masih gagal walau sudah
+      // di-resync di atas, coba SEKALI LAGI dengan resync yang lebih
+      // "agresif" (paksa startVpn ulang + jeda lebih lama), baru kalau
+      // masih gagal juga, menyerah dan kasih tahu user cara manual.
     }
 
     final config = await VpnConfigService.instance.load();

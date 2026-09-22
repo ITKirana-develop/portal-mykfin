@@ -54,7 +54,7 @@ class WebViewScreen extends StatefulWidget {
     this.closeOnUrlContains,
     this.redirectHomeWhen,
     this.showAppBar = true,
-    this.addMobileAppParam = true,
+    this.addMobileAppParam = false,
   });
 
   @override
@@ -732,15 +732,24 @@ class _WebViewScreenState extends State<WebViewScreen> {
                 offset: Offset(0, _pullDistance),
                 child: WebViewWidget(
                   controller: controller,
-                  // gestureRecognizers ini yang bikin gesture geser bisa
-                  // "kedengaran" juga sama GestureDetector di atas,
-                  // meskipun jari user lagi nyentuh area WebView (yang
-                  // biasanya WebView native "monopoli" semua sentuhan).
-                  gestureRecognizers: {
-                    Factory<VerticalDragGestureRecognizer>(
-                      () => VerticalDragGestureRecognizer(),
-                    ),
-                  },
+                  // PENTING buat performa scroll: gestureRecognizers ini
+                  // cuma diisi kalau halaman lagi di posisi PALING ATAS
+                  // (_webViewAtTop). Kalau selalu diisi (tanpa syarat),
+                  // SETIAP gesture geser di mana pun di halaman (bahkan
+                  // pas scroll biasa di tengah konten) ikut "disaingin"
+                  // sama GestureDetector Flutter di atas -- ini yang
+                  // bikin scroll kerasa berat/kesendat dibanding Chrome.
+                  // Dengan cuma aktif pas di atas, scroll normal jadi
+                  // 100% native (mulus), gesture pull-to-refresh tetap
+                  // jalan karena logicnya sendiri juga sudah dijaga
+                  // _webViewAtTop di _onPullDragUpdate.
+                  gestureRecognizers: _webViewAtTop
+                      ? {
+                          Factory<VerticalDragGestureRecognizer>(
+                            () => VerticalDragGestureRecognizer(),
+                          ),
+                        }
+                      : const <Factory<OneSequenceGestureRecognizer>>{},
                 ),
               ),
             ),

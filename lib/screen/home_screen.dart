@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -142,16 +141,16 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openRecruitment() {
-  Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (context) => WebViewScreen(
-        title: 'Recruitment Information',
-        url: AppConfig.recruitmentUrl,
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => WebViewScreen(
+          title: 'Recruitment Information',
+          url: AppConfig.recruitmentUrl,
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   // Dipanggil saat user narik layar ke bawah (pull-to-refresh).
   // Saat ini cuma refresh tampilan; kalau nanti ada data dari server
@@ -722,33 +721,32 @@ class _HeroSection extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.fromLTRB(20, 18, 20, 40),
         decoration: const BoxDecoration(
-          // Terang di atas (dekat logo), makin redup/gelap ke bawah --
-          // kebalikan dari sebelumnya.
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [KColors.heroSky, Color(0xFF1E3A8A), KColors.heroNavy],
+          // Radial dengan kontras kuat: TENGAH putih bersih, tepian
+          // biru yang cukup pekat (bukan pastel tipis lagi) -- biar
+          // efek terang-di-tengah-gelap-di-tepi kelihatan jelas.
+          gradient: RadialGradient(
+            center: Alignment.center,
+            radius: 1.8,
+            stops: [0.0, 0.55, 1.2],
+            colors: [
+              Color(0xFFFFFFFF),
+              Color.fromARGB(255, 14, 102, 216),
+              Color.fromARGB(255, 8, 28, 59),
+            ],
           ),
         ),
         child: Column(
           children: [
-            // Logo MyKFIN full, warna asli (bukan diputihkan). Biar
-            // tetap kontras di atas gradient biru tua tanpa kartu
-            // solid, dikasih glow putih lembut (blur) di belakangnya
-            // -- bukan kotak keras, cuma cahaya samar.
-            Stack(
-              alignment: Alignment.center,
-              children: [
-                _GlowBlob(size: 200, opacity: 0.55),
-                const _HeroLogo(height: 150),
-              ],
-            ),
+            // Logo MyKFIN full, warna asli. Background sekarang terang
+            // (pucat), jadi logo navy+merah asli udah kontras dengan
+            // sendirinya, gak perlu glow/putih lagi.
+            const _HeroLogo(height: 150),
             const SizedBox(height: 18),
             const Text(
               'Quick Access to All',
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: Colors.white,
+                color: Color.fromARGB(255, 0, 22, 122),
                 fontSize: 21,
                 fontWeight: FontWeight.w800,
                 height: 1.25,
@@ -758,7 +756,7 @@ class _HeroSection extends StatelessWidget {
               'Our Internal Applications',
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: Color(0xFF7DD3FC),
+                color: Color.fromARGB(255, 30, 134, 160),
                 fontSize: 21,
                 fontWeight: FontWeight.w800,
                 height: 1.25,
@@ -774,28 +772,28 @@ class _HeroSection extends StatelessWidget {
                   vertical: 8,
                 ),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.16),
+                  color: Colors.white,
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.25),
+                    color: KColors.primary.withValues(alpha: 0.35),
                   ),
                 ),
-                child: const Row(
+                child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
                       'Recruitment Information',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: KColors.primary,
                         fontWeight: FontWeight.w700,
                         fontSize: 12,
                       ),
                     ),
-                    SizedBox(width: 6),
+                    const SizedBox(width: 6),
                     Icon(
                       Icons.arrow_forward_rounded,
                       size: 14,
-                      color: Colors.white,
+                      color: KColors.primary,
                     ),
                   ],
                 ),
@@ -839,31 +837,6 @@ class _HeroLogo extends StatelessWidget {
       height: height,
       fit: BoxFit.contain,
       errorBuilder: (context, error, stackTrace) => _tryLoad(index + 1),
-    );
-  }
-}
-
-/// Lingkaran cahaya blur samar, ditaruh di belakang logo hero supaya
-/// tetap kontras di atas gradient biru tua tanpa perlu kartu solid
-/// atau ubah warna logo.
-class _GlowBlob extends StatelessWidget {
-  const _GlowBlob({required this.size, required this.opacity});
-
-  final double size;
-  final double opacity;
-
-  @override
-  Widget build(BuildContext context) {
-    return ImageFiltered(
-      imageFilter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
-      child: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: Colors.white.withValues(alpha: opacity),
-        ),
-      ),
     );
   }
 }
@@ -1130,7 +1103,7 @@ class _Footer extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
       decoration: const BoxDecoration(
-        gradient: LinearGradient(colors: [KColors.heroNavy, Color(0xFF1E3A8A)]),
+        gradient: LinearGradient(colors: [Color.fromARGB(255, 84, 123, 221), Color(0xFF1E3A8A)]),
       ),
       child: const Column(
         children: [
