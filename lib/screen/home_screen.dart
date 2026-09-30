@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../config/app_config.dart';
 import '../service/vpn_service.dart';
 import '../service/vpn_config_service.dart';
@@ -47,10 +48,10 @@ class _PortalApp {
   final String assetKey;
   final String? badge;
   final Color? badgeColor;
-  // Dulu berarti "buka di browser luar". Sekarang SEMUA card dibuka
-  // lewat WebView di dalam app -- flag ini cuma menandai bahwa
-  // baseUrl sudah URL lengkap (tidak perlu ditambah '/login' saat
-  // dibuka), dipakai untuk "Website Utama".
+  // true = card ini dibuka di BROWSER LUAR (Chrome/browser HP bawaan),
+  // bukan di WebView dalam app. Dipakai untuk "Website Utama" (situs
+  // publik kfifood.com), karena situs luar begini tidak perlu (dan
+  // tidak cocok) ditampilkan di dalam WebView internal app.
   final bool external;
 }
 
@@ -67,17 +68,17 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // 6 aplikasi yang bisa diakses. Website Utama sengaja ditaruh paling
-  // atas, K-IKAN & yang lain geser ke bawahnya. Kalau nanti akses
+  // 6 aplikasi yang bisa diakses. ERP sengaja ditaruh paling atas,
+  // K-IKAN & yang lain geser ke bawahnya. Kalau nanti akses
   // bertambah, tinggal tambah entri baru di list ini + URL barunya di
   // app_config.dart.
   static final List<_PortalApp> _apps = [
     _PortalApp(
-      name: 'Website ',
-      description: 'Situs resmi PT. Kirana Food International',
-      icon: Icons.language_rounded,
-      baseUrl: AppConfig.kiranaWebsiteUrl,
-      assetKey: 'website_utama',
+      name: 'ERP',
+      description: 'ENTERPRISE RESOURCE PLANNING',
+      icon: Icons.business_center_rounded,
+      baseUrl: AppConfig.erpBaseUrl,
+      assetKey: 'erp',
       external: true,
     ),
     _PortalApp(
@@ -118,38 +119,44 @@ class _HomeScreenState extends State<HomeScreen> {
   ];
 
   void _openApp(_PortalApp app) {
-    // Semua card sekarang dibuka DI DALAM aplikasi lewat WebView
-    // (WebViewScreen), termasuk "Website Utama" -- tidak lagi
-    // lompat keluar ke Chrome/browser HP.
-    // app.baseUrl untuk Website Utama sudah URL utuh (kfifood.com),
-    // jadi tidak perlu ditambah '/login' seperti aplikasi internal.
-    final url = app.baseUrl;
+    // "Website Utama" (app.external == true) dibuka di BROWSER LUAR,
+    // bukan lewat WebView dalam app -- situs publik kfifood.com tidak
+    // butuh (dan tidak cocok) dibungkus WebView internal.
+    if (app.external) {
+      _openExternal(app.baseUrl);
+      return;
+    }
+
+    // Aplikasi internal (K-IKAN, K-FISH, dst) tetap dibuka DI DALAM
+    // app lewat WebView seperti biasa.
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => WebViewScreen(
           title: app.name,
-          url: url,
-          // Website Utama (app.external) itu situs LUAR yang di-cache
-          // CDN-nya sendiri -- jangan ditempelin '?mobile_app=1',
-          // biar tetap kena cache cepat, bukan selalu ambil versi baru
-          // dari server. Aplikasi internal tetap perlu parameter ini.
-          addMobileAppParam: !app.external,
+          url: app.baseUrl,
+          addMobileAppParam: true,
         ),
       ),
     );
   }
 
   void _openRecruitment() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => WebViewScreen(
-          title: 'Recruitment Information',
-          url: AppConfig.recruitmentUrl,
-        ),
-      ),
-    );
+    // Recruitment sekarang juga dibuka di BROWSER LUAR, bukan lewat
+    // WebView dalam app.
+    _openExternal(AppConfig.recruitmentUrl);
+  }
+
+  // Helper buat buka URL di browser eksternal (Chrome/browser HP
+  // bawaan), dipakai untuk ERP dan Recruitment.
+  Future<void> _openExternal(String url) async {
+    final uri = Uri.parse(url);
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Tidak bisa membuka link ini.')),
+      );
+    }
   }
 
   // Dipanggil saat user narik layar ke bawah (pull-to-refresh).
@@ -232,6 +239,17 @@ class _TopBarState extends State<_TopBar> {
   final _devicePublicKeyController = TextEditingController();
 
   StreamSubscription<VpnConnectionState>? _vpnSub;
+
+  // Logo Kirana di-tap -> buka website resmi di browser eksternal.
+  Future<void> _openKiranaWebsite() async {
+    final uri = Uri.parse(AppConfig.kiranaWebsiteUrl);
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Tidak bisa membuka link ini.')),
+      );
+    }
+  }
 
   @override
   void initState() {
@@ -453,7 +471,10 @@ class _TopBarState extends State<_TopBar> {
                     ),
                   ],
                 ),
-                Padding(
+                InkWell(
+                  onTap: _openKiranaWebsite,
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
                   padding: const EdgeInsets.all(4),
                   child: Image.asset(
                     'assets/icon/kirana_logo.png',
@@ -469,6 +490,7 @@ class _TopBarState extends State<_TopBar> {
                         ),
                       );
                     },
+                  ),
                   ),
                 ),
               ],
@@ -721,18 +743,12 @@ class _HeroSection extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.fromLTRB(20, 18, 20, 40),
         decoration: const BoxDecoration(
-          // Radial dengan kontras kuat: TENGAH putih bersih, tepian
-          // biru yang cukup pekat (bukan pastel tipis lagi) -- biar
-          // efek terang-di-tengah-gelap-di-tepi kelihatan jelas.
-          gradient: RadialGradient(
-            center: Alignment.center,
-            radius: 1.8,
-            stops: [0.0, 0.55, 1.2],
-            colors: [
-              Color(0xFFFFFFFF),
-              Color.fromARGB(255, 14, 102, 216),
-              Color.fromARGB(255, 8, 28, 59),
-            ],
+          // Background diganti pakai gambar pattern yang sudah kamu
+          // taruh di assets/icon/ (nama filenya ada spasi, jadi
+          // ditulis persis "Aplikasi myKFIN.jpeg").
+          image: DecorationImage(
+            image: AssetImage('assets/icon/Aplikasi myKFIN.jpeg'),
+            fit: BoxFit.cover,
           ),
         ),
         child: Column(

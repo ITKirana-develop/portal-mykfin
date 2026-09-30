@@ -1,7 +1,5 @@
 import 'dart:async';
 import 'package:wireguard_flutter_pro/wireguard_flutter_pro.dart';
-
-
 import 'vpn_config_service.dart';
 
 /// Status koneksi VPN WireGuard.

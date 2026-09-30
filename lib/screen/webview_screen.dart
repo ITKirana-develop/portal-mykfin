@@ -1,8 +1,7 @@
 import 'dart:io';
 
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show Factory;
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:open_filex/open_filex.dart';
@@ -11,6 +10,9 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'home_screen.dart';
+
+/// Pilihan di menu (tombol melayang) pada WebViewScreen.
+enum _WebMenuAction { back, portal, quit }
 
 class WebViewScreen extends StatefulWidget {
   final String url;
@@ -67,6 +69,17 @@ class _WebViewScreenState extends State<WebViewScreen> {
   int loadingProgress = 0;
   bool hasError = false;
 
+  // Overlay loading di-hide begitu progress halaman nyampe ambang ini
+  // -- TIDAK nunggu onPageFinished (100%). onPageFinished baru nembak
+  // setelah SEMUA resource kelar (gambar, font, script analytics/chat
+  // widget, dll), padahal konten utama halaman biasanya udah kebentuk
+  // & bisa dipakai jauh sebelum itu. Nunggu 100% bikin overlay
+  // nyangkut lama padahal user udah bisa mulai berinteraksi.
+  // Threshold 55% dipilih supaya masih aman (bukan pas baru mulai
+  // loading dan halaman masih kosong-blank), sambil tetap kerasa jauh
+  // lebih cepat dibanding nunggu 100%.
+  static const int _loadingHideThreshold = 55;
+
   // ==== State untuk pull-to-refresh (geser dari atas) ====
   // WebView bukan widget scroll biasa di Flutter (dia native view
   // terpisah), jadi RefreshIndicator bawaan Flutter tidak otomatis
@@ -81,6 +94,15 @@ class _WebViewScreenState extends State<WebViewScreen> {
 
   static const double _pullTriggerThreshold = 72;
   static const double _pullMaxDistance = 110;
+
+  // ==== State untuk tombol back melayang (draggable) ====
+  // Ditambahkan karena banyak user bingung cari tombol back saat
+  // AppBar disembunyikan (showAppBar: false) -- tombol ini selalu
+  // muncul di atas WebView apa pun kondisi showAppBar, bisa digeser
+  // bebas, dan posisinya di-clamp supaya tidak pernah nyangkut/hilang
+  // di luar layar (misal abis rotate atau ganti ukuran window).
+  static const double _floatingBackButtonSize = 44;
+  Offset? _floatingBackButtonPosition;
 
   @override
   void initState() {
@@ -128,6 +150,14 @@ class _WebViewScreenState extends State<WebViewScreen> {
             if (mounted) {
               setState(() {
                 loadingProgress = progress;
+                // Begitu progress udah lewat threshold, langsung
+                // anggap "selesai loading" dari sisi tampilan --
+                // overlay ke-fade duluan sementara sisa resource
+                // (gambar/script non-kritis) tetap lanjut load di
+                // belakang layar tanpa menahan user nunggu.
+                if (progress >= _loadingHideThreshold) {
+                  isLoading = false;
+                }
               });
             }
           },
@@ -145,11 +175,28 @@ class _WebViewScreenState extends State<WebViewScreen> {
             controller.runJavaScript('''
               if (!window.__ktFlutterScrollBound) {
                 window.__ktFlutterScrollBound = true;
+                // Di-throttle pakai requestAnimationFrame: event 'scroll'
+                // bisa nembak puluhan kali per detik saat scroll cepat,
+                // dan tiap panggilan postMessage() nyeberang JS<->Native
+                // bridge -- kalau tidak di-throttle, ini ikut membebani
+                // main thread pas lagi scroll dan bikin scroll kerasa
+                // berat/ngelag dibanding browser biasa.
+                var __ktTicking = false;
+                var __ktLastAtTop = null;
                 var reportScroll = function() {
+                  __ktTicking = false;
                   var atTop = (window.scrollY || document.documentElement.scrollTop || 0) <= 0;
-                  FlutterScrollTracker.postMessage(atTop ? 'top' : 'nottop');
+                  if (atTop !== __ktLastAtTop) {
+                    __ktLastAtTop = atTop;
+                    FlutterScrollTracker.postMessage(atTop ? 'top' : 'nottop');
+                  }
                 };
-                window.addEventListener('scroll', reportScroll, { passive: true });
+                window.addEventListener('scroll', function() {
+                  if (!__ktTicking) {
+                    __ktTicking = true;
+                    window.requestAnimationFrame(reportScroll);
+                  }
+                }, { passive: true });
                 reportScroll();
               }
             ''');
@@ -500,20 +547,39 @@ class _WebViewScreenState extends State<WebViewScreen> {
 
   // ==== Pull-to-refresh (geser dari atas) ====
 
-  void _onPullDragUpdate(DragUpdateDetails details) {
+  // Posisi Y pointer terakhir, dipakai _onPointerMove untuk menghitung
+  // delta gerakan manual (karena Listener tidak kasih delta langsung
+  // seperti GestureDetector).
+  double? _lastPointerY;
+
+  void _onPointerDown(PointerDownEvent event) {
+    _lastPointerY = event.position.dy;
+  }
+
+  void _onPointerMove(PointerMoveEvent event) {
+    final lastY = _lastPointerY;
+    _lastPointerY = event.position.dy;
+    if (lastY == null) return;
+
+    final dy = event.position.dy - lastY;
+
     // Cuma boleh mulai "menarik" kalau: halaman web di posisi paling
     // atas, arah geser ke BAWAH (delta positif), dan bukan lagi
     // proses refresh yang sebelumnya.
     if (!_webViewAtTop || _refreshing || hasError) return;
-    if (details.delta.dy <= 0 && _pullDistance <= 0) return;
+    if (dy <= 0 && _pullDistance <= 0) return;
 
     setState(() {
-      _pullDistance = (_pullDistance + details.delta.dy * 0.55)
-          .clamp(0, _pullMaxDistance);
+      _pullDistance = (_pullDistance + dy * 0.55).clamp(0, _pullMaxDistance);
     });
   }
 
-  Future<void> _onPullDragEnd(DragEndDetails details) async {
+  void _onPointerUp(PointerEvent event) {
+    _lastPointerY = null;
+    _onPullDragEnd();
+  }
+
+  Future<void> _onPullDragEnd() async {
     if (_pullDistance >= _pullTriggerThreshold && !_refreshing) {
       setState(() => _refreshing = true);
       controller.reload();
@@ -572,6 +638,159 @@ class _WebViewScreenState extends State<WebViewScreen> {
                           : KColors.onSurfaceVariant,
                     ),
                   ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _webView() {
+    return WebViewWidget(controller: controller);
+  }
+
+  // Logic back tunggal, dipakai sama-sama oleh:
+  // 1. Tombol back Android/gesture (lewat PopScope di build())
+  // 2. Tombol menu melayang (_buildFloatingMenuButton)
+  // Supaya perilakunya selalu konsisten: cek riwayat halaman web dulu
+  // (goBack di dalam WebView), baru keluar WebViewScreen kalau riwayat
+  // web-nya udah mentok.
+  Future<void> _handleBackAction() async {
+    final canGoBack = await controller.canGoBack();
+
+    if (canGoBack) {
+      await controller.goBack();
+    } else {
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+    }
+  }
+
+  // Aksi dari menu titik tiga:
+  // - back   : mundur ke halaman sebelumnya (riwayat WebView dulu, kalau
+  //            sudah mentok baru keluar dari WebViewScreen)
+  // - portal : kembali ke HomeScreen Flutter (daftar card aplikasi)
+  // - quit   : tutup aplikasi
+  Future<void> _handleMenuAction(_WebMenuAction action) async {
+    switch (action) {
+      case _WebMenuAction.back:
+        await _handleBackAction();
+        break;
+      case _WebMenuAction.portal:
+        if (!mounted) return;
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const HomeScreen()),
+          (route) => false,
+        );
+        break;
+      case _WebMenuAction.quit:
+        await SystemNavigator.pop();
+        break;
+    }
+  }
+
+  // Clamp posisi tombol supaya tidak pernah kegeser sampai keluar
+  // area layar (constraints didapat dari LayoutBuilder pembungkus
+  // Stack di body, jadi otomatis menyesuaikan kalau ukuran berubah,
+  // misal rotate layar).
+  Offset _clampFloatingBackButtonPosition(Offset offset, Size areaSize) {
+    final maxX = (areaSize.width - _floatingBackButtonSize).clamp(
+      0.0,
+      double.infinity,
+    );
+    final maxY = (areaSize.height - _floatingBackButtonSize).clamp(
+      0.0,
+      double.infinity,
+    );
+    return Offset(
+      offset.dx.clamp(0.0, maxX),
+      offset.dy.clamp(0.0, maxY),
+    );
+  }
+
+  Widget _buildFloatingMenuButton(Size areaSize) {
+    // Posisi awal: pojok kiri-bawah, dikasih sedikit jarak supaya tidak
+    // mepet banget ke tepi layar/gesture bar.
+    _floatingBackButtonPosition ??= _clampFloatingBackButtonPosition(
+      Offset(12, areaSize.height - _floatingBackButtonSize - 90),
+      areaSize,
+    );
+
+    final position = _clampFloatingBackButtonPosition(
+      _floatingBackButtonPosition!,
+      areaSize,
+    );
+
+    return Positioned(
+      left: position.dx,
+      top: position.dy,
+      child: GestureDetector(
+        onPanUpdate: (details) {
+          setState(() {
+            _floatingBackButtonPosition = _clampFloatingBackButtonPosition(
+              position + details.delta,
+              areaSize,
+            );
+          });
+        },
+        child: PopupMenuButton<_WebMenuAction>(
+          tooltip: 'Menu',
+          padding: EdgeInsets.zero,
+          onSelected: _handleMenuAction,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          itemBuilder: (context) => const [
+            PopupMenuItem(
+              value: _WebMenuAction.back,
+              child: Row(
+                children: [
+                  Icon(Icons.arrow_back_rounded, size: 20),
+                  SizedBox(width: 12),
+                  Text('Kembali'),
+                ],
+              ),
+            ),
+            PopupMenuItem(
+              value: _WebMenuAction.portal,
+              child: Row(
+                children: [
+                  Icon(Icons.home_rounded, size: 20),
+                  SizedBox(width: 12),
+                  Text('Portal'),
+                ],
+              ),
+            ),
+            PopupMenuItem(
+              value: _WebMenuAction.quit,
+              child: Row(
+                children: [
+                  Icon(Icons.exit_to_app_rounded, size: 20),
+                  SizedBox(width: 12),
+                  Text('Keluar Aplikasi'),
+                ],
+              ),
+            ),
+          ],
+          child: Container(
+            width: _floatingBackButtonSize,
+            height: _floatingBackButtonSize,
+            decoration: BoxDecoration(
+              color: KColors.primary,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: KColors.primary.withValues(alpha: 0.35),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: const Icon(
+              Icons.menu_rounded,
+              color: Colors.white,
+              size: 22,
+            ),
           ),
         ),
       ),
@@ -703,16 +922,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
-
-        final canGoBack = await controller.canGoBack();
-
-        if (canGoBack) {
-          await controller.goBack();
-        } else {
-          if (mounted) {
-            Navigator.of(context).pop();
-          }
-        }
+        await _handleBackAction();
       },
       child: Scaffold(
         appBar: widget.showAppBar
@@ -723,48 +933,67 @@ class _WebViewScreenState extends State<WebViewScreen> {
             : null,
         body: SafeArea(
           top: !widget.showAppBar,
-          child: Stack(
-          children: [
-            GestureDetector(
-              onVerticalDragUpdate: _onPullDragUpdate,
-              onVerticalDragEnd: _onPullDragEnd,
-              child: Transform.translate(
-                offset: Offset(0, _pullDistance),
-                child: WebViewWidget(
-                  controller: controller,
-                  // PENTING buat performa scroll: gestureRecognizers ini
-                  // cuma diisi kalau halaman lagi di posisi PALING ATAS
-                  // (_webViewAtTop). Kalau selalu diisi (tanpa syarat),
-                  // SETIAP gesture geser di mana pun di halaman (bahkan
-                  // pas scroll biasa di tengah konten) ikut "disaingin"
-                  // sama GestureDetector Flutter di atas -- ini yang
-                  // bikin scroll kerasa berat/kesendat dibanding Chrome.
-                  // Dengan cuma aktif pas di atas, scroll normal jadi
-                  // 100% native (mulus), gesture pull-to-refresh tetap
-                  // jalan karena logicnya sendiri juga sudah dijaga
-                  // _webViewAtTop di _onPullDragUpdate.
-                  gestureRecognizers: _webViewAtTop
-                      ? {
-                          Factory<VerticalDragGestureRecognizer>(
-                            () => VerticalDragGestureRecognizer(),
-                          ),
-                        }
-                      : const <Factory<OneSequenceGestureRecognizer>>{},
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final areaSize = Size(
+                constraints.maxWidth,
+                constraints.maxHeight,
+              );
+              return Stack(
+                children: [
+                  Listener(
+                // PENTING buat performa scroll: pakai Listener (raw pointer),
+                // BUKAN GestureDetector. GestureDetector dengan
+                // onVerticalDragUpdate/onVerticalDragEnd selalu mendaftar
+                // sebagai peserta di gesture arena Flutter untuk SETIAP
+                // gesture geser vertikal di area WebView -- termasuk pas
+                // scroll biasa di tengah halaman, bukan cuma pas mau pull-
+                // to-refresh. Itu bikin native scroll WebView harus
+                // "berebut" pengenalan gesture terus-menerus, beda dengan
+                // browser biasa yang scroll-nya native murni. Listener
+                // tidak ikut disambiguasi gesture arena sama sekali (cuma
+                // "menonton" pointer lewat behavior.translucent), jadi
+                // WebView selalu dapat native scroll 100% mulus, sementara
+                // logic pull-to-refresh dihitung manual dari posisi pointer.
+                behavior: HitTestBehavior.translucent,
+                onPointerDown: _onPointerDown,
+                onPointerMove: _onPointerMove,
+                onPointerUp: _onPointerUp,
+                onPointerCancel: _onPointerUp,
+                child: _pullDistance > 0
+                    ? Transform.translate(
+                        // Transform cuma dipasang SELAMA benar-benar
+                        // sedang ditarik (_pullDistance > 0). Membungkus
+                        // native view (WebView) dengan Transform terus-
+                        // menerus (walau translasinya 0) bisa memaksa
+                        // Android merender WebView lewat jalur compositing
+                        // yang lebih berat, sehingga scroll kerasa lag
+                        // terus-menerus, bukan cuma pas gesture pull aktif.
+                        offset: Offset(0, _pullDistance),
+                        child: _webView(),
+                      )
+                    : _webView(),
+              ),
+
+              if (_pullDistance > 0) _buildPullToRefreshIndicator(),
+
+              if (isLoading && !hasError)
+                AnimatedOpacity(
+                  opacity: isLoading ? 1 : 0,
+                  duration: const Duration(milliseconds: 200),
+                  child: _buildLoadingOverlay(),
                 ),
-              ),
-            ),
 
-            if (_pullDistance > 0) _buildPullToRefreshIndicator(),
+              if (hasError) _buildErrorView(),
 
-            if (isLoading && !hasError)
-              AnimatedOpacity(
-                opacity: isLoading ? 1 : 0,
-                duration: const Duration(milliseconds: 200),
-                child: _buildLoadingOverlay(),
-              ),
-
-            if (hasError) _buildErrorView(),
+              // Tombol menu melayang -- SENGAJA ditaruh paling
+              // akhir (di atas layer lain) dan TIDAK dibungkus kondisi
+              // showAppBar, supaya selalu terlihat & bisa ditap di semua
+              // halaman WebView, termasuk saat AppBar disembunyikan.
+              _buildFloatingMenuButton(areaSize),
           ],
+              );
+            },
           ),
         ),
       ),
