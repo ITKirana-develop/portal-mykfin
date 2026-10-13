@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,12 +8,13 @@ import 'package:image_picker/image_picker.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'home_screen.dart';
 
 /// Pilihan di menu (tombol melayang) pada WebViewScreen.
-enum _WebMenuAction { back, portal, quit }
+enum _WebMenuAction { back, portal, nextcloud, talk, quit }
 
 class WebViewScreen extends StatefulWidget {
   final String url;
@@ -683,10 +685,208 @@ class _WebViewScreenState extends State<WebViewScreen> {
           (route) => false,
         );
         break;
+      case _WebMenuAction.nextcloud:
+        await _openAppOrStore(_nextcloudPackage);
+        break;
+      case _WebMenuAction.talk:
+        await _openAppOrStore(_nextcloudTalkPackage);
+        break;
       case _WebMenuAction.quit:
         await SystemNavigator.pop();
         break;
     }
+  }
+
+  // Jembatan ke kode native Android (lihat MainActivity.kt).
+  static const MethodChannel _appChannel = MethodChannel('mykfin/apps');
+
+  // Package name aplikasi Android di Play Store.
+  static const String _nextcloudPackage = 'com.nextcloud.client';
+  static const String _nextcloudTalkPackage = 'com.nextcloud.talk2';
+
+  // Buka aplikasi kalau sudah terpasang di HP; kalau belum, arahkan
+  // ke halaman aplikasinya di Play Store.
+  Future<void> _openAppOrStore(String packageName) async {
+    try {
+      // Dicek & dibuka lewat kode native Android (MainActivity.kt).
+      final opened =
+          await _appChannel.invokeMethod<bool>('openApp', packageName) ??
+              false;
+      if (opened) return;
+    } catch (_) {
+      // lanjut ke Play Store
+    }
+
+    try {
+      final opened = await launchUrl(
+        Uri.parse('market://details?id=$packageName'),
+        mode: LaunchMode.externalApplication,
+      );
+      if (opened) return;
+    } catch (_) {
+      // Play Store app tidak ada -> pakai link web
+    }
+
+    try {
+      await launchUrl(
+        Uri.parse('https://play.google.com/store/apps/details?id=$packageName'),
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Tidak bisa membuka aplikasi ini.')),
+      );
+    }
+  }
+
+  // Menu bubble gaya "AssistiveTouch": panel gelap transparan di tengah
+  // layar, tiap aksi berupa bubble bulat + label. Tap di luar panel
+  // untuk menutup.
+  Future<void> _showQuickMenu() async {
+    final action = await showGeneralDialog<_WebMenuAction>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Tutup menu',
+      barrierColor: Colors.black.withValues(alpha: 0.35),
+      transitionDuration: const Duration(milliseconds: 180),
+      pageBuilder: (dialogContext, animation, secondaryAnimation) {
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(28),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                child: Container(
+                  width: 300,
+                  padding: const EdgeInsets.fromLTRB(8, 20, 8, 16),
+                  color: const Color(0xD9262626),
+                  child: Wrap(
+                    alignment: WrapAlignment.center,
+                    runSpacing: 18,
+                    children: [
+                      _quickMenuBubble(
+                        dialogContext,
+                        value: _WebMenuAction.back,
+                        label: 'Kembali',
+                        icon: Icons.arrow_back_rounded,
+                      ),
+                      _quickMenuBubble(
+                        dialogContext,
+                        value: _WebMenuAction.portal,
+                        label: 'Portal',
+                        icon: Icons.home_rounded,
+                      ),
+                      _quickMenuBubble(
+                        dialogContext,
+                        value: _WebMenuAction.nextcloud,
+                        label: 'Nextcloud',
+                        icon: Icons.cloud_rounded,
+                        asset: 'assets/icon/nextcloud.png',
+                      ),
+                      _quickMenuBubble(
+                        dialogContext,
+                        value: _WebMenuAction.talk,
+                        label: 'Nextcloud Talk',
+                        icon: Icons.chat_rounded,
+                        asset: 'assets/icon/talk.png',
+                      ),
+                      _quickMenuBubble(
+                        dialogContext,
+                        value: _WebMenuAction.quit,
+                        label: 'Keluar',
+                        icon: Icons.power_settings_new_rounded,
+                        color: const Color(0xFFE53935),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(parent: animation, curve: Curves.easeOut);
+        return FadeTransition(
+          opacity: curved,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.92, end: 1.0).animate(curved),
+            child: child,
+          ),
+        );
+      },
+    );
+    // Dialog sudah tertutup -> baru jalankan aksinya.
+    if (action != null) await _handleMenuAction(action);
+  }
+
+  // Satu bubble aksi: lingkaran 56px + label di bawahnya. Kalau [asset]
+  // diisi, lingkaran berisi gambar logo (fallback ke [icon] kalau file
+  // gambar belum ada).
+  Widget _quickMenuBubble(
+    BuildContext dialogContext, {
+    required _WebMenuAction value,
+    required String label,
+    required IconData icon,
+    String? asset,
+    Color? color,
+  }) {
+    const double size = 56;
+    final Widget face = asset != null
+        ? ClipOval(
+            child: Image.asset(
+              asset,
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) => Container(
+                width: size,
+                height: size,
+                color: Colors.white.withValues(alpha: 0.16),
+                child: Icon(icon, color: Colors.white, size: 28),
+              ),
+            ),
+          )
+        : Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: color ?? Colors.white.withValues(alpha: 0.16),
+            ),
+            child: Icon(icon, color: Colors.white, size: 28),
+          );
+
+    return SizedBox(
+      width: 92,
+      child: InkWell(
+        onTap: () => Navigator.of(dialogContext).pop(value),
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              face,
+              const SizedBox(height: 6),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   // Clamp posisi tombol supaya tidak pernah kegeser sampai keluar
@@ -709,10 +909,10 @@ class _WebViewScreenState extends State<WebViewScreen> {
   }
 
   Widget _buildFloatingMenuButton(Size areaSize) {
-    // Posisi awal: pojok kiri-bawah, dikasih sedikit jarak supaya tidak
-    // mepet banget ke tepi layar/gesture bar.
+    // Posisi awal: pojok kiri-atas (tetap bisa digeser), dikasih sedikit
+    // jarak supaya tidak mepet banget ke tepi layar.
     _floatingBackButtonPosition ??= _clampFloatingBackButtonPosition(
-      Offset(12, areaSize.height - _floatingBackButtonSize - 90),
+      const Offset(12, 12),
       areaSize,
     );
 
@@ -733,45 +933,9 @@ class _WebViewScreenState extends State<WebViewScreen> {
             );
           });
         },
-        child: PopupMenuButton<_WebMenuAction>(
-          tooltip: 'Menu',
-          padding: EdgeInsets.zero,
-          onSelected: _handleMenuAction,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          itemBuilder: (context) => const [
-            PopupMenuItem(
-              value: _WebMenuAction.back,
-              child: Row(
-                children: [
-                  Icon(Icons.arrow_back_rounded, size: 20),
-                  SizedBox(width: 12),
-                  Text('Kembali'),
-                ],
-              ),
-            ),
-            PopupMenuItem(
-              value: _WebMenuAction.portal,
-              child: Row(
-                children: [
-                  Icon(Icons.home_rounded, size: 20),
-                  SizedBox(width: 12),
-                  Text('Portal'),
-                ],
-              ),
-            ),
-            PopupMenuItem(
-              value: _WebMenuAction.quit,
-              child: Row(
-                children: [
-                  Icon(Icons.exit_to_app_rounded, size: 20),
-                  SizedBox(width: 12),
-                  Text('Keluar Aplikasi'),
-                ],
-              ),
-            ),
-          ],
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _showQuickMenu,
           child: Container(
             width: _floatingBackButtonSize,
             height: _floatingBackButtonSize,

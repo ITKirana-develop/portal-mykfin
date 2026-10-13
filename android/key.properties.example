@@ -1,0 +1,4 @@
+storePassword=KATA_SANDI_KEYSTORE
+keyPassword=KATA_SANDI_KUNCI
+keyAlias=ALIAS_DARI_IT
+storeFile=C:/keys/mykfin-upload.jks
